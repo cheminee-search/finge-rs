@@ -17,6 +17,9 @@ pub mod mutations;
 pub mod tanimoto;
 pub mod traits;
 
+mod morgan_mass;
+pub use morgan_mass::MorganMassPolicy;
+
 #[cfg(feature = "smarts-support")]
 pub use crate::fingerprints::MaccsFingerprint;
 #[cfg(feature = "smarts-support")]
@@ -74,8 +77,8 @@ pub mod prelude {
         ImpossibleHCountPredicate, ImpossibleIsotopeMutator, ImpossibleIsotopePredicate,
         ImpossibleRingFlagMutator, ImpossibleRingFlagPredicate, InvalidatedGraph,
         LayeredCountEcfpFingerprint, LayeredCountFingerprint, Map4Fingerprint, Map4Graph,
-        MolecularAtom, MolecularBond, MolecularGraph, Mutator, MutatorError, MutatorMix,
-        PatternBondProperties, PatternFingerprint, PatternFingerprintError,
+        MolecularAtom, MolecularBond, MolecularGraph, MorganMassPolicy, Mutator, MutatorError,
+        MutatorMix, PatternBondProperties, PatternFingerprint, PatternFingerprintError,
         PatternFingerprintGraph, PredicateClass, RdkFingerprint, RdkFingerprintGraph,
         SparseFingerprint, TanimotoIndex, TanimotoItem, TopologicalPathologyMutator,
         TopologicalPathologyPredicate, TopologicalTorsionFingerprint, TopologicalTorsionGraph,

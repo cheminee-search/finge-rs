@@ -34,6 +34,26 @@ The existing preparation methods preserve input aromatic labels when standalone 
 
 Fingerprinting, `LshIndex` and `TanimotoIndex` support `wasm32-unknown-unknown`, including the `smarts-support` feature.
 
+Morgan mass invariants retain their existing elements-rs isotope masses by
+default, including the intentional `[162Tm]` and `[239Th]` differences. To select
+the pinned native metadata, use
+`graph.with_morgan_mass_policy(MorganMassPolicy::Rdkit2026091)` on a prepared
+graph view. This changes only the Morgan integer mass-delta field: it uses
+RDKit 2026.09.1's weights, isotope data and integer-mass fallback, followed by
+truncation toward zero. `MorganMassPolicy::ElementsRs` restores the default.
+The choice works through the existing generic ECFP bit/count interfaces and
+does not clone or reprepare the molecule. It does not change scientific mass
+tables, other fingerprints, parser acceptance or preparation errors, and does
+not by itself establish full RDKit fingerprint or sanitization equivalence.
+
+The versioned metadata derives from RDKit commit
+`fece8caa860bdf6c9c82bdb9253f22a0cf87150c`: 119 weights and 626 delta overrides
+represent all 3,111 native-listed isotopes plus its missing-isotope fallback.
+`tools/generate_rdkit2026091_morgan_mass.py` verifies the exact source Git blob
+before regenerating the data, including the 54 space-separated tail rows.
+The fixed native-runtime fixture retains all listed isotope deltas. See
+`THIRD_PARTY_NOTICES.md` for provenance and licensing.
+
 ## Controlled local composition
 
 This integration branch requires local Cargo source overrides for the composed
