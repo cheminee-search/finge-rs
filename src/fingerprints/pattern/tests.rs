@@ -193,6 +193,7 @@ enum Fault {
     Inconsistent,
     AtomicNumber,
     BondType,
+    ConcreteDummy,
 }
 
 struct Malformed<'a> {
@@ -251,6 +252,8 @@ impl PatternFingerprintGraph for Malformed<'_> {
     fn pattern_atomic_number(&self, atom: usize) -> u32 {
         if matches!(self.fault, Fault::AtomicNumber) {
             200
+        } else if matches!(self.fault, Fault::ConcreteDummy) && atom == 0 {
+            0
         } else {
             self.graph.pattern_atomic_number(atom)
         }
@@ -261,6 +264,31 @@ impl PatternFingerprintGraph for Malformed<'_> {
             properties.bond_type = 17;
         }
         properties
+    }
+}
+
+#[test]
+fn concrete_dummy_backends_match_smiles_dummy_oracles_without_query_semantics() {
+    for (backend, oracle) in [("C", "*"), ("CC", "*C")] {
+        let molecule: Smiles = backend.parse().unwrap();
+        let mut scratch = SmilesRdkitScratch::default();
+        let graph = Malformed {
+            graph: scratch.try_prepare(&molecule).unwrap(),
+            fault: Fault::ConcreteDummy,
+        };
+        let expected = include_str!("../../../tests/fixtures/rdkit_pattern_curated.jsonl")
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .find(|row| row["smiles"] == oracle && row["fp_size"] == 2048)
+            .unwrap();
+        let observed = PatternFingerprint::default()
+            .try_compute(&graph)
+            .unwrap()
+            .to_le_bytes()
+            .iter()
+            .map(|byte| alloc::format!("{byte:02x}"))
+            .collect::<String>();
+        assert_eq!(observed, expected["expected_hex"].as_str().unwrap());
     }
 }
 
