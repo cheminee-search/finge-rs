@@ -76,6 +76,41 @@ where
     }
 }
 
+/// Concrete bond properties used by the non-tautomeric Pattern fingerprint.
+///
+/// `bond_type` uses RDKit's numeric values: single 1, double 2, triple 3,
+/// quadruple 4, aromatic 12. Other families currently return an explicit error.
+/// Aromatic flags are separate because an aromatic triple bond still has type 3.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PatternBondProperties {
+    /// Underlying normalized bond type, not a SMARTS bond query.
+    pub bond_type: u32,
+    /// Whether the molecule's aromaticity model marks this bond aromatic.
+    pub aromatic: bool,
+}
+
+/// Concrete molecular graphs suitable for molecule-only Pattern fingerprints.
+///
+/// Implementations supply chemical properties after their chosen preparation
+/// policy. This trait does not certify sanitization or RDKit compatibility.
+/// SMARTS query predicates must not be encoded as ordinary atom/bond values.
+pub trait PatternFingerprintGraph: MolecularGraph<NodeId = usize>
+where
+    Self::NodeSymbol: MolecularAtom,
+{
+    /// Returns atomic number zero for a concrete dummy atom, or 1 through 118.
+    fn pattern_atomic_number(&self, atom_id: usize) -> u32;
+
+    /// Returns the prepared bond type and aromatic flag.
+    fn pattern_bond_properties(&self, bond: &Self::Bond) -> PatternBondProperties;
+
+    /// Whether an atom is excluded by the selected hydrogen-removal policy.
+    /// Ignored atoms and their incident bonds do not participate in patterns.
+    fn pattern_atom_is_ignored(&self, _atom_id: usize) -> bool {
+        false
+    }
+}
+
 /// Graphs that can provide RDKit-style ECFP connectivity invariants.
 pub trait EcfpGraph: MolecularGraph<NodeId = usize>
 where

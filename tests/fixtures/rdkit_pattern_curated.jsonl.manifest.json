@@ -1,0 +1,17 @@
+{
+  "rdkit_version": "2026.09.1",
+  "rdkit_source_commit": "fece8caa860bdf6c9c82bdb9253f22a0cf87150c",
+  "input_sha256": "834323f8e86914234005c4a8d56b748f6f274d7cd5f2a25cba90693d8e53424f",
+  "output_sha256": "7499368da9713bce9d97aba6714a46c6dd7f117ae681950fdbcc003128b6e9c4",
+  "rows": 153,
+  "oracle_rejections": 9,
+  "widths": [
+    2048,
+    1000,
+    64
+  ],
+  "tautomeric": false,
+  "remove_hs": true,
+  "allow_cxsmiles": false,
+  "parse_name": false
+}

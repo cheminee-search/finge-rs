@@ -37,7 +37,8 @@ pub use crate::{
     fingerprints::{
         AtomPairFingerprint, CountEcfpFingerprint, CountMap4Fingerprint, DEFAULT_MAP4_FP_SIZE,
         DEFAULT_MAP4_RADIUS, EcfpFingerprint, LayeredCountEcfpFingerprint,
-        MAP4_DISCONNECTED_DISTANCE, Map4Fingerprint, RdkFingerprint, TopologicalTorsionFingerprint,
+        MAP4_DISCONNECTED_DISTANCE, Map4Fingerprint, PatternFingerprint, PatternFingerprintError,
+        RdkFingerprint, TopologicalTorsionFingerprint,
     },
     lsh::{LshIndex, Sketcher},
     mutations::{
@@ -55,7 +56,8 @@ pub use crate::{
     tanimoto::{SparseFingerprint, TanimotoIndex, TanimotoItem},
     traits::{
         AtomPairGraph, EcfpGraph, Map4Graph, MolecularAtom, MolecularBond, MolecularGraph,
-        RdkFingerprintGraph, TopologicalTorsionGraph,
+        PatternBondProperties, PatternFingerprintGraph, RdkFingerprintGraph,
+        TopologicalTorsionGraph,
     },
 };
 
@@ -73,13 +75,14 @@ pub mod prelude {
         ImpossibleRingFlagMutator, ImpossibleRingFlagPredicate, InvalidatedGraph,
         LayeredCountEcfpFingerprint, LayeredCountFingerprint, Map4Fingerprint, Map4Graph,
         MolecularAtom, MolecularBond, MolecularGraph, Mutator, MutatorError, MutatorMix,
-        PredicateClass, RdkFingerprint, RdkFingerprintGraph, SparseFingerprint, TanimotoIndex,
-        TanimotoItem, TopologicalPathologyMutator, TopologicalPathologyPredicate,
-        TopologicalTorsionFingerprint, TopologicalTorsionGraph, ViolationClass, ViolationLabel,
-        ViolationPredicate, has_impossible_bond_type, has_impossible_charge,
-        has_impossible_hydrogen_count, has_impossible_isotope, has_impossible_ring_flag,
-        has_topological_pathology, is_hypervalent, is_impossible_atomic_number,
-        max_natural_valence,
+        PatternBondProperties, PatternFingerprint, PatternFingerprintError,
+        PatternFingerprintGraph, PredicateClass, RdkFingerprint, RdkFingerprintGraph,
+        SparseFingerprint, TanimotoIndex, TanimotoItem, TopologicalPathologyMutator,
+        TopologicalPathologyPredicate, TopologicalTorsionFingerprint, TopologicalTorsionGraph,
+        ViolationClass, ViolationLabel, ViolationPredicate, has_impossible_bond_type,
+        has_impossible_charge, has_impossible_hydrogen_count, has_impossible_isotope,
+        has_impossible_ring_flag, has_topological_pathology, is_hypervalent,
+        is_impossible_atomic_number, max_natural_valence,
     };
     pub use crate::{
         CheckedSmilesPreparationError, SmilesEcfpGraph, SmilesEcfpScratch, SmilesPreparationError,
