@@ -1,3 +1,4 @@
+use alloc::{vec, vec::Vec};
 use bitvec::prelude::{BitSlice, BitVec, Lsb0};
 
 /// Dense bit fingerprint backed by `bitvec`.
@@ -57,6 +58,18 @@ impl BitFingerprint {
     pub fn is_empty(&self) -> bool {
         self.bits.is_empty()
     }
+
+    /// Packs bits into bytes with bit zero in the least-significant position
+    /// of the first byte. Unused high bits in the final byte are zero.
+    /// This representation does not depend on host word size or endianness.
+    #[must_use]
+    pub fn to_le_bytes(&self) -> Vec<u8> {
+        let mut bytes = vec![0; self.len().div_ceil(8)];
+        for bit in self.active_bits() {
+            bytes[bit / 8] |= 1 << (bit % 8);
+        }
+        bytes
+    }
 }
 
 impl From<BitVec<usize, Lsb0>> for BitFingerprint {
@@ -106,5 +119,15 @@ mod tests {
             fingerprint.active_bits().collect::<alloc::vec::Vec<_>>(),
             vec![0, 2]
         );
+    }
+
+    #[test]
+    fn packed_bytes_follow_lsb0_order_across_byte_boundaries() {
+        let mut fingerprint = BitFingerprint::zeros(18);
+        for bit in [3, 7, 8, 17] {
+            fingerprint.set(bit);
+        }
+        assert_eq!(fingerprint.to_le_bytes(), vec![0x88, 0x01, 0x02]);
+        assert!(BitFingerprint::zeros(0).to_le_bytes().is_empty());
     }
 }

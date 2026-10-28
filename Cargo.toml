@@ -2,7 +2,7 @@
 name = "finge-rs"
 version = "0.1.0"
 edition = "2024"
-license = "MIT"
+license = "MIT AND BSD-3-Clause"
 description = "Trait-first no_std molecular fingerprints"
 readme = "README.md"
 rust-version = "1.92"

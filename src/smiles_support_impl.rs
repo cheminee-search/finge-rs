@@ -1,6 +1,6 @@
 use alloc::{string::String, vec, vec::Vec};
 
-use elements_rs::{AllowedValences, ValenceElectrons, isotopes::RelativeAtomicMass};
+use elements_rs::{AllowedValences, AtomicNumber, ValenceElectrons, isotopes::RelativeAtomicMass};
 use geometric_traits::traits::{Graph, MonopartiteGraph, MonoplexGraph, TypedNode};
 use smiles_rs::{
     atom::{Atom, McesAtomType},
@@ -15,7 +15,8 @@ use crate::{
     atom_invariant_fields::AtomInvariantFields,
     traits::{
         AtomPairGraph, EcfpGraph, Map4Graph, MolecularAtom, MolecularBond, MolecularGraph,
-        RdkFingerprintGraph, TopologicalTorsionGraph,
+        PatternBondProperties, PatternFingerprintGraph, RdkFingerprintGraph,
+        TopologicalTorsionGraph,
     },
 };
 
@@ -1306,6 +1307,27 @@ impl EcfpGraph for SmilesRdkitGraph<'_> {
     #[inline]
     fn ecfp_bond_invariant(&self, bond: &Self::Bond, use_bond_types: bool) -> u32 {
         rdkit_bond_code(self.smiles, *bond, use_bond_types)
+    }
+}
+
+impl PatternFingerprintGraph for SmilesRdkitGraph<'_> {
+    fn pattern_atomic_number(&self, atom_id: usize) -> u32 {
+        self.smiles
+            .node_by_id(atom_id)
+            .and_then(Atom::element)
+            .map_or(0, |element| u32::from(element.atomic_number()))
+    }
+
+    fn pattern_bond_properties(&self, bond: &Self::Bond) -> PatternBondProperties {
+        PatternBondProperties {
+            bond_type: rdkit_bond_code(self.smiles, *bond, true),
+            aromatic: bond.is_aromatic(),
+        }
+    }
+
+    fn pattern_atom_is_ignored(&self, atom_id: usize) -> bool {
+        self.collapse_plain_explicit_hydrogens
+            && rdkit_rdk_atom_is_collapsible_hydrogen(self.smiles, atom_id)
     }
 }
 
