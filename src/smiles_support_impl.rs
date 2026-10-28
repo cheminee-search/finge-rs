@@ -2112,7 +2112,6 @@ mod tests {
         for preserve_hydrogens in [false, true] {
             let mut legacy = SmilesRdkitScratch::default();
             let mut checked = SmilesRdkitScratch::default();
-            let mut unsupported = Vec::new();
             for input in &fixture.molecules {
                 let smiles: Smiles = input.parse().unwrap();
                 let legacy_graph = if preserve_hydrogens {
@@ -2121,27 +2120,17 @@ mod tests {
                     legacy.try_prepare(&smiles)
                 }
                 .expect("legacy reference preparation must remain supported");
-                let result = if preserve_hydrogens {
+                let checked_graph = if preserve_hydrogens {
                     checked.try_prepare_checked_preserving_explicit_hydrogens(&smiles)
                 } else {
                     checked.try_prepare_checked(&smiles)
-                };
-                match result {
-                    Ok(graph) => assert_eq!(
-                        fingerprint.compute(&graph),
-                        fingerprint.compute(&legacy_graph)
-                    ),
-                    Err(CheckedSmilesPreparationError::Kekulization(
-                        KekulizationError::NoPerfectMatching {
-                            candidate_atom_count: 0,
-                        },
-                    )) => unsupported.push(input.as_str()),
-                    Err(error) => panic!("unexpected checked preparation error: {error}"),
                 }
+                .expect("the composed localizer must support every reference input");
+                assert_eq!(
+                    fingerprint.compute(&checked_graph),
+                    fingerprint.compute(&legacy_graph)
+                );
             }
-            // These retain their original RDKit oracle expectations. Only the
-            // opt-in checked path rejects their unsupported localization.
-            assert_eq!(unsupported, ["N=c1[nH]c(=S)ss1", "O=c1[nH]c(=O)ss1"]);
         }
     }
 

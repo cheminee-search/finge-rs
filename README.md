@@ -30,9 +30,18 @@ Preparation and graph sanitization remain caller responsibilities. The fixed
 pattern definitions derive from BSD-licensed RDKit; see `THIRD_PARTY_NOTICES.md`
 and `LICENSE-RDKIT`.
 
-The existing preparation methods preserve input aromatic labels when standalone kekulization fails. Use `try_prepare_checked` or `try_prepare_checked_preserving_explicit_hydrogens` to reject that fallback with `CheckedSmilesPreparationError::Kekulization`. These additive methods leave existing preparation behavior and `SmilesPreparationError` unchanged. They check localization and propagate aromaticity-assignment errors, but do not perform full molecular sanitization, certify aromaticity-perception completeness, or guarantee acceptance by RDKit. Some RDKit-accepted structures, including `N=c1[nH]c(=S)ss1` and `O=c1[nH]c(=O)ss1` from the tracked reference corpus, cannot currently be localized and are rejected by the checked path.
+The existing preparation methods preserve input aromatic labels when standalone kekulization fails. Use `try_prepare_checked` or `try_prepare_checked_preserving_explicit_hydrogens` to reject that fallback with `CheckedSmilesPreparationError::Kekulization`. These additive methods leave existing preparation behavior and `SmilesPreparationError` unchanged. They check localization and propagate aromaticity-assignment errors, but do not perform full molecular sanitization, certify aromaticity-perception completeness, or guarantee acceptance by RDKit. The controlled composition includes the SMILES zero-demand localizer: every tracked HIV reference input, including `N=c1[nH]c(=S)ss1` and `O=c1[nH]c(=O)ss1`, now prepares successfully in both hydrogen modes and retains its fingerprint. Other accepted-language and perception gaps remain.
 
 Fingerprinting, `LshIndex` and `TanimotoIndex` support `wasm32-unknown-unknown`, including the `smarts-support` feature.
+
+## Controlled local composition
+
+This integration branch requires local Cargo source overrides for the composed
+SMILES and SMARTS forks. Its registry version requirements alone do not include
+the unpublished localizer and matching patches. The campaign control manifest
+records exact source commits, override configuration and lockfile; use that
+portable configuration for qualification. Original independent contribution
+branches and their historical reports remain unchanged.
 
 ## Usage
 
