@@ -147,33 +147,30 @@ where
                     }
                 }
             }
+        } else if self.fp_size.is_power_of_two() {
+            let mask = self.fp_size - 1;
+            visit_atom_pairs(
+                &adjacency,
+                self.min_distance,
+                self.max_distance,
+                |left, right, distance| {
+                    let bit_id =
+                        hashed_atom_pair_bit(atom_codes[left], atom_codes[right], distance) & mask;
+                    fingerprint.set(bit_id);
+                },
+            );
         } else {
-            if self.fp_size.is_power_of_two() {
-                let mask = self.fp_size - 1;
-                visit_atom_pairs(
-                    &adjacency,
-                    self.min_distance,
-                    self.max_distance,
-                    |left, right, distance| {
-                        let bit_id =
-                            hashed_atom_pair_bit(atom_codes[left], atom_codes[right], distance)
-                                & mask;
-                        fingerprint.set(bit_id);
-                    },
-                );
-            } else {
-                visit_atom_pairs(
-                    &adjacency,
-                    self.min_distance,
-                    self.max_distance,
-                    |left, right, distance| {
-                        let bit_id =
-                            hashed_atom_pair_bit(atom_codes[left], atom_codes[right], distance)
-                                % self.fp_size;
-                        fingerprint.set(bit_id);
-                    },
-                );
-            }
+            visit_atom_pairs(
+                &adjacency,
+                self.min_distance,
+                self.max_distance,
+                |left, right, distance| {
+                    let bit_id =
+                        hashed_atom_pair_bit(atom_codes[left], atom_codes[right], distance)
+                            % self.fp_size;
+                    fingerprint.set(bit_id);
+                },
+            );
         }
 
         fingerprint
