@@ -1,5 +1,7 @@
 //! Public `smiles-rs` adapter surface for RDKit-parity fingerprinting.
 
+pub use crate::MorganMassPolicy;
+
 pub use crate::smiles_support_impl::{
     CheckedSmilesPreparationError, SmilesPreparationError, SmilesRdkitGraph, SmilesRdkitScratch,
 };

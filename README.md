@@ -30,9 +30,38 @@ Preparation and graph sanitization remain caller responsibilities. The fixed
 pattern definitions derive from BSD-licensed RDKit; see `THIRD_PARTY_NOTICES.md`
 and `LICENSE-RDKIT`.
 
-The existing preparation methods preserve input aromatic labels when standalone kekulization fails. Use `try_prepare_checked` or `try_prepare_checked_preserving_explicit_hydrogens` to reject that fallback with `CheckedSmilesPreparationError::Kekulization`. These additive methods leave existing preparation behavior and `SmilesPreparationError` unchanged. They check localization and propagate aromaticity-assignment errors, but do not perform full molecular sanitization, certify aromaticity-perception completeness, or guarantee acceptance by RDKit. Some RDKit-accepted structures, including `N=c1[nH]c(=S)ss1` and `O=c1[nH]c(=O)ss1` from the tracked reference corpus, cannot currently be localized and are rejected by the checked path.
+The existing preparation methods preserve input aromatic labels when standalone kekulization fails. Use `try_prepare_checked` or `try_prepare_checked_preserving_explicit_hydrogens` to reject that fallback with `CheckedSmilesPreparationError::Kekulization`. These additive methods leave existing preparation behavior and `SmilesPreparationError` unchanged. They check localization and propagate aromaticity-assignment errors, but do not perform full molecular sanitization, certify aromaticity-perception completeness, or guarantee acceptance by RDKit. The controlled composition includes the SMILES zero-demand localizer: every tracked HIV reference input, including `N=c1[nH]c(=S)ss1` and `O=c1[nH]c(=O)ss1`, now prepares successfully in both hydrogen modes and retains its fingerprint. Other accepted-language and perception gaps remain.
 
 Fingerprinting, `LshIndex` and `TanimotoIndex` support `wasm32-unknown-unknown`, including the `smarts-support` feature.
+
+Morgan mass invariants retain their existing elements-rs isotope masses by
+default, including the intentional `[162Tm]` and `[239Th]` differences. To select
+the pinned native metadata, use
+`graph.with_morgan_mass_policy(MorganMassPolicy::Rdkit2026091)` on a prepared
+graph view. This changes only the Morgan integer mass-delta field: it uses
+RDKit 2026.09.1's weights, isotope data and integer-mass fallback, followed by
+truncation toward zero. `MorganMassPolicy::ElementsRs` restores the default.
+The choice works through the existing generic ECFP bit/count interfaces and
+does not clone or reprepare the molecule. It does not change scientific mass
+tables, other fingerprints, parser acceptance or preparation errors, and does
+not by itself establish full RDKit fingerprint or sanitization equivalence.
+
+The versioned metadata derives from RDKit commit
+`fece8caa860bdf6c9c82bdb9253f22a0cf87150c`: 119 weights and 626 delta overrides
+represent all 3,111 native-listed isotopes plus its missing-isotope fallback.
+`tools/generate_rdkit2026091_morgan_mass.py` verifies the exact source Git blob
+before regenerating the data, including the 54 space-separated tail rows.
+The fixed native-runtime fixture retains all listed isotope deltas. See
+`THIRD_PARTY_NOTICES.md` for provenance and licensing.
+
+## Controlled local composition
+
+This integration branch requires local Cargo source overrides for the composed
+SMILES and SMARTS forks. Its registry version requirements alone do not include
+the unpublished localizer and matching patches. The campaign control manifest
+records exact source commits, override configuration and lockfile; use that
+portable configuration for qualification. Original independent contribution
+branches and their historical reports remain unchanged.
 
 ## Usage
 

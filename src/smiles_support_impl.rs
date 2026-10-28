@@ -12,7 +12,9 @@ use smiles_rs::{
 };
 
 use crate::{
+    MorganMassPolicy,
     atom_invariant_fields::AtomInvariantFields,
+    morgan_mass::rdkit_delta_mass,
     traits::{
         AtomPairGraph, EcfpGraph, Map4Graph, MolecularAtom, MolecularBond, MolecularGraph,
         PatternBondProperties, PatternFingerprintGraph, RdkFingerprintGraph,
@@ -876,11 +878,26 @@ fn rdkit_atom_pair_pi_electrons(
     state.explicit_valence - state.physical_bonds
 }
 
-#[inline]
+#[cfg(test)]
 fn rdkit_atom_invariant_fields(
     smiles: &Smiles,
     atom_id: usize,
     ring_atom_membership: &RingAtomMembership,
+) -> AtomInvariantFields {
+    rdkit_atom_invariant_fields_with_mass_policy(
+        smiles,
+        atom_id,
+        ring_atom_membership,
+        MorganMassPolicy::ElementsRs,
+    )
+}
+
+#[inline]
+fn rdkit_atom_invariant_fields_with_mass_policy(
+    smiles: &Smiles,
+    atom_id: usize,
+    ring_atom_membership: &RingAtomMembership,
+    mass_policy: MorganMassPolicy,
 ) -> AtomInvariantFields {
     let Some(atom) = smiles.node_by_id(atom_id) else {
         return AtomInvariantFields::default();
@@ -914,7 +931,12 @@ fn rdkit_atom_invariant_fields(
     let total_degree = heavy_degree + total_hydrogens;
     let formal_charge =
         i32::from(normalized_rdkit_charge(smiles, atom_id, atom).unwrap_or(atom.charge_value()));
-    let delta_mass = morgan_delta_mass(atom);
+    let delta_mass = match mass_policy {
+        MorganMassPolicy::ElementsRs => morgan_delta_mass(atom),
+        MorganMassPolicy::Rdkit2026091 => {
+            rdkit_delta_mass(atomic_number as u8, atom.isotope_mass_number().unwrap_or(0))
+        }
+    };
 
     AtomInvariantFields {
         atomic_number,
@@ -1230,6 +1252,7 @@ impl SmilesRdkitScratch {
             smiles: normalized,
             ring_atom_membership: &self.ring_atom_membership,
             collapse_plain_explicit_hydrogens,
+            morgan_mass_policy: MorganMassPolicy::ElementsRs,
         }
     }
 }
@@ -1243,6 +1266,34 @@ pub struct SmilesRdkitGraph<'a> {
     smiles: &'a Smiles,
     ring_atom_membership: &'a RingAtomMembership,
     collapse_plain_explicit_hydrogens: bool,
+    morgan_mass_policy: MorganMassPolicy,
+}
+
+impl SmilesRdkitGraph<'_> {
+    /// Selects the mass metadata convention used by Morgan atom invariants.
+    ///
+    /// Existing preparation methods use [`MorganMassPolicy::ElementsRs`]. This
+    /// changes only the Morgan mass-delta field on the returned graph view;
+    /// it does not repeat preparation, clone the molecule, or affect other
+    /// fingerprint families. It does not extend parser or preparation support.
+    ///
+    /// ```
+    /// use finge_rs::{EcfpGraph, MorganMassPolicy, SmilesRdkitScratch};
+    /// use smiles_rs::Smiles;
+    ///
+    /// let molecule: Smiles = "[239Th]".parse().unwrap();
+    /// let mut scratch = SmilesRdkitScratch::default();
+    /// let graph = scratch.try_prepare_checked(&molecule).unwrap();
+    /// assert_eq!(graph.ecfp_atom_invariant_fields(0).delta_mass, 7);
+    /// let native = graph.with_morgan_mass_policy(MorganMassPolicy::Rdkit2026091);
+    /// assert_eq!(native.ecfp_atom_invariant_fields(0).delta_mass, 6);
+    /// ```
+    #[inline]
+    #[must_use]
+    pub const fn with_morgan_mass_policy(mut self, policy: MorganMassPolicy) -> Self {
+        self.morgan_mass_policy = policy;
+        self
+    }
 }
 
 impl Graph for SmilesRdkitGraph<'_> {
@@ -1301,7 +1352,12 @@ impl EcfpGraph for SmilesRdkitGraph<'_> {
 
     #[inline]
     fn ecfp_atom_invariant_fields(&self, atom_id: usize) -> AtomInvariantFields {
-        rdkit_atom_invariant_fields(self.smiles, atom_id, self.ring_atom_membership)
+        rdkit_atom_invariant_fields_with_mass_policy(
+            self.smiles,
+            atom_id,
+            self.ring_atom_membership,
+            self.morgan_mass_policy,
+        )
     }
 
     #[inline]
@@ -2112,7 +2168,6 @@ mod tests {
         for preserve_hydrogens in [false, true] {
             let mut legacy = SmilesRdkitScratch::default();
             let mut checked = SmilesRdkitScratch::default();
-            let mut unsupported = Vec::new();
             for input in &fixture.molecules {
                 let smiles: Smiles = input.parse().unwrap();
                 let legacy_graph = if preserve_hydrogens {
@@ -2121,27 +2176,17 @@ mod tests {
                     legacy.try_prepare(&smiles)
                 }
                 .expect("legacy reference preparation must remain supported");
-                let result = if preserve_hydrogens {
+                let checked_graph = if preserve_hydrogens {
                     checked.try_prepare_checked_preserving_explicit_hydrogens(&smiles)
                 } else {
                     checked.try_prepare_checked(&smiles)
-                };
-                match result {
-                    Ok(graph) => assert_eq!(
-                        fingerprint.compute(&graph),
-                        fingerprint.compute(&legacy_graph)
-                    ),
-                    Err(CheckedSmilesPreparationError::Kekulization(
-                        KekulizationError::NoPerfectMatching {
-                            candidate_atom_count: 0,
-                        },
-                    )) => unsupported.push(input.as_str()),
-                    Err(error) => panic!("unexpected checked preparation error: {error}"),
                 }
+                .expect("the composed localizer must support every reference input");
+                assert_eq!(
+                    fingerprint.compute(&checked_graph),
+                    fingerprint.compute(&legacy_graph)
+                );
             }
-            // These retain their original RDKit oracle expectations. Only the
-            // opt-in checked path rejects their unsupported localization.
-            assert_eq!(unsupported, ["N=c1[nH]c(=S)ss1", "O=c1[nH]c(=O)ss1"]);
         }
     }
 
