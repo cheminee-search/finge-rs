@@ -1,7 +1,7 @@
 //! Public `smiles-rs` adapter surface for RDKit-parity fingerprinting.
 
 pub use crate::smiles_support_impl::{
-    SmilesPreparationError, SmilesRdkitGraph, SmilesRdkitScratch,
+    CheckedSmilesPreparationError, SmilesPreparationError, SmilesRdkitGraph, SmilesRdkitScratch,
 };
 
 /// Backward-compatible alias for the RDKit-normalized `smiles-rs` graph view.

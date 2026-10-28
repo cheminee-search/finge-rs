@@ -26,8 +26,8 @@ pub use crate::maccs_support::{
     has_multiple_fragments, rdkit_maccs_keys,
 };
 pub use crate::smiles_support::{
-    SmilesEcfpGraph, SmilesEcfpScratch, SmilesPreparationError, SmilesRdkitGraph,
-    SmilesRdkitScratch,
+    CheckedSmilesPreparationError, SmilesEcfpGraph, SmilesEcfpScratch, SmilesPreparationError,
+    SmilesRdkitGraph, SmilesRdkitScratch,
 };
 pub use crate::{
     atom_invariant_fields::{AtomInvariantFields, morgan_hash_combine, morgan_hash_u32_sequence},
@@ -82,8 +82,8 @@ pub mod prelude {
         max_natural_valence,
     };
     pub use crate::{
-        SmilesEcfpGraph, SmilesEcfpScratch, SmilesPreparationError, SmilesRdkitGraph,
-        SmilesRdkitScratch,
+        CheckedSmilesPreparationError, SmilesEcfpGraph, SmilesEcfpScratch, SmilesPreparationError,
+        SmilesRdkitGraph, SmilesRdkitScratch,
     };
 }
 
