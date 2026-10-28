@@ -6,8 +6,8 @@ use smiles_rs::{
     atom::{Atom, McesAtomType},
     bond::{Bond, bond_edge::BondEdge},
     smiles::{
-        AromaticityAssignmentApplicationError, AromaticityPolicy, RingAtomMembership,
-        RingAtomMembershipScratch, Smiles,
+        AromaticityAssignmentApplicationError, AromaticityPolicy, KekulizationError,
+        RingAtomMembership, RingAtomMembershipScratch, Smiles,
     },
 };
 
@@ -992,36 +992,81 @@ impl core::fmt::Display for SmilesPreparationError {
     }
 }
 
+impl core::error::Error for SmilesPreparationError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            Self::Aromaticity(error) => Some(error),
+        }
+    }
+}
+
+/// Error from fingerprint preparation that requires aromatic localization.
+#[derive(Debug)]
+pub enum CheckedSmilesPreparationError {
+    /// Localizing the input's aromatic atoms and bonds failed.
+    Kekulization(KekulizationError),
+    /// Applying the RDKit-default aromaticity assignment failed.
+    Preparation(SmilesPreparationError),
+}
+
+impl core::fmt::Display for CheckedSmilesPreparationError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Kekulization(error) => {
+                write!(
+                    f,
+                    "failed to kekulize aromatic input for fingerprinting: {error}"
+                )
+            }
+            Self::Preparation(error) => core::fmt::Display::fmt(error, f),
+        }
+    }
+}
+
+impl core::error::Error for CheckedSmilesPreparationError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            Self::Kekulization(error) => Some(error),
+            Self::Preparation(error) => Some(error),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct RdkitNormalization {
     smiles: Smiles,
 }
 
-fn normalize_smiles_for_rdkit(
-    smiles: &Smiles,
-) -> Result<RdkitNormalization, SmilesPreparationError> {
+fn localize_smiles_for_rdkit(smiles: &Smiles) -> Result<Smiles, KekulizationError> {
     let has_aromatic_labels = smiles.nodes().iter().any(Atom::aromatic)
         || (0..smiles.atom_count())
             .any(|atom_id| smiles.edges_for_node(atom_id).any(BondEdge::is_aromatic));
 
-    let base = if has_aromatic_labels {
-        if let Ok(kekule) = smiles.kekulize_standalone() {
-            kekule
-        } else {
-            return Ok(RdkitNormalization {
-                smiles: smiles.clone(),
-            });
-        }
+    if has_aromatic_labels {
+        smiles.kekulize_standalone()
     } else {
-        smiles.clone()
-    };
+        Ok(smiles.clone())
+    }
+}
 
+fn perceive_rdkit_aromaticity(base: Smiles) -> Result<RdkitNormalization, SmilesPreparationError> {
     let perception = base
         .perceive_aromaticity_for(AromaticityPolicy::RdkitDefault)
         .map_err(SmilesPreparationError::Aromaticity)?;
     Ok(RdkitNormalization {
         smiles: perception.into_aromaticized(),
     })
+}
+
+fn normalize_smiles_for_rdkit(
+    smiles: &Smiles,
+) -> Result<RdkitNormalization, SmilesPreparationError> {
+    match localize_smiles_for_rdkit(smiles) {
+        Ok(base) => perceive_rdkit_aromaticity(base),
+        Err(_) => Ok(RdkitNormalization {
+            smiles: smiles.clone(),
+        }),
+    }
 }
 
 /// Reusable scratch for batch RDKit-parity processing over `smiles-rs`
@@ -1041,6 +1086,10 @@ impl SmilesRdkitScratch {
     /// Prepares a `smiles-rs` graph for RDKit-parity fingerprinting while
     /// reusing the normalized graph and atom-ring-membership buffers held by
     /// this scratch object.
+    ///
+    /// # Panics
+    /// Panics if aromaticity assignment fails. Use
+    /// [`try_prepare`](Self::try_prepare) to handle this error.
     #[inline]
     #[must_use]
     pub fn prepare<'a>(&'a mut self, smiles: &Smiles) -> SmilesRdkitGraph<'a> {
@@ -1054,6 +1103,11 @@ impl SmilesRdkitScratch {
     /// This matches RDKit `AddHs`-style workflows. The default
     /// [`prepare`](Self::prepare) path mirrors sanitized `MolFromSmiles`
     /// behavior and collapses ordinary explicit hydrogens.
+    ///
+    /// # Panics
+    /// Panics if aromaticity assignment fails. Use
+    /// [`try_prepare_preserving_explicit_hydrogens`](Self::try_prepare_preserving_explicit_hydrogens)
+    /// to handle this error.
     #[inline]
     #[must_use]
     pub fn prepare_preserving_explicit_hydrogens<'a>(
@@ -1066,8 +1120,15 @@ impl SmilesRdkitScratch {
 
     /// Prepares a `smiles-rs` graph for RDKit-parity fingerprinting.
     ///
-    /// This first normalizes aromaticity to the RDKit-default model, then
-    /// populates reusable ring-membership buffers for ECFP.
+    /// This normalizes aromaticity to the RDKit-default model when standalone
+    /// kekulization succeeds, then populates reusable ring-membership buffers.
+    /// If kekulization fails, it preserves the input graph and its aromatic
+    /// labels for compatibility. Use [`try_prepare_checked`](Self::try_prepare_checked)
+    /// to reject that fallback.
+    ///
+    /// # Errors
+    /// Returns [`SmilesPreparationError::Aromaticity`] if applying the named
+    /// aromaticity policy fails. The scratch can be reused after an error.
     pub fn try_prepare<'a>(
         &'a mut self,
         smiles: &Smiles,
@@ -1077,11 +1138,66 @@ impl SmilesRdkitScratch {
 
     /// Prepares a graph while preserving ordinary explicit hydrogens as
     /// fingerprint centers.
+    ///
+    /// Uses the same localization fallback as [`try_prepare`](Self::try_prepare).
+    ///
+    /// # Errors
+    /// Returns an error if aromaticity assignment fails. The scratch can be
+    /// reused after an error.
     pub fn try_prepare_preserving_explicit_hydrogens<'a>(
         &'a mut self,
         smiles: &Smiles,
     ) -> Result<SmilesRdkitGraph<'a>, SmilesPreparationError> {
         self.try_prepare_with_options(smiles, false)
+    }
+
+    /// Prepares a graph while requiring aromatic input to have a standalone
+    /// Kekule form, then applying the RDKit-default aromaticity model.
+    ///
+    /// Unlike [`try_prepare`](Self::try_prepare), this rejects localization
+    /// failures instead of preserving the input's aromatic labels. Parsing
+    /// successfully does not imply that localization is supported, and some
+    /// RDKit-accepted molecules are outside this checked path's supported domain.
+    /// This does not perform full molecular sanitization or certify aromaticity
+    /// perception completeness or acceptance by RDKit.
+    ///
+    /// # Errors
+    /// Returns [`CheckedSmilesPreparationError::Kekulization`] if aromatic input
+    /// cannot be localized, or [`CheckedSmilesPreparationError::Preparation`]
+    /// if aromaticity assignment fails. The scratch can be reused after an error.
+    pub fn try_prepare_checked<'a>(
+        &'a mut self,
+        smiles: &Smiles,
+    ) -> Result<SmilesRdkitGraph<'a>, CheckedSmilesPreparationError> {
+        self.try_prepare_checked_with_options(smiles, true)
+    }
+
+    /// Prepares a checked graph while preserving ordinary explicit hydrogens
+    /// as fingerprint centers.
+    ///
+    /// Uses the same localization checks and limited validation scope as
+    /// [`try_prepare_checked`](Self::try_prepare_checked).
+    ///
+    /// # Errors
+    /// Returns an error if aromatic input cannot be kekulized or aromaticity
+    /// assignment fails. The scratch can be reused after an error.
+    pub fn try_prepare_checked_preserving_explicit_hydrogens<'a>(
+        &'a mut self,
+        smiles: &Smiles,
+    ) -> Result<SmilesRdkitGraph<'a>, CheckedSmilesPreparationError> {
+        self.try_prepare_checked_with_options(smiles, false)
+    }
+
+    fn try_prepare_checked_with_options<'a>(
+        &'a mut self,
+        smiles: &Smiles,
+        collapse_plain_explicit_hydrogens: bool,
+    ) -> Result<SmilesRdkitGraph<'a>, CheckedSmilesPreparationError> {
+        let base = localize_smiles_for_rdkit(smiles)
+            .map_err(CheckedSmilesPreparationError::Kekulization)?;
+        let normalized =
+            perceive_rdkit_aromaticity(base).map_err(CheckedSmilesPreparationError::Preparation)?;
+        Ok(self.store_normalized(normalized, collapse_plain_explicit_hydrogens))
     }
 
     fn try_prepare_with_options<'a>(
@@ -1090,6 +1206,14 @@ impl SmilesRdkitScratch {
         collapse_plain_explicit_hydrogens: bool,
     ) -> Result<SmilesRdkitGraph<'a>, SmilesPreparationError> {
         let normalized = normalize_smiles_for_rdkit(smiles)?;
+        Ok(self.store_normalized(normalized, collapse_plain_explicit_hydrogens))
+    }
+
+    fn store_normalized(
+        &mut self,
+        normalized: RdkitNormalization,
+        collapse_plain_explicit_hydrogens: bool,
+    ) -> SmilesRdkitGraph<'_> {
         self.normalized_smiles = Some(normalized.smiles);
         let normalized = self
             .normalized_smiles
@@ -1101,11 +1225,11 @@ impl SmilesRdkitScratch {
             &mut self.ring_atom_membership_scratch,
         );
 
-        Ok(SmilesRdkitGraph {
+        SmilesRdkitGraph {
             smiles: normalized,
             ring_atom_membership: &self.ring_atom_membership,
             collapse_plain_explicit_hydrogens,
-        })
+        }
     }
 }
 
@@ -1502,11 +1626,11 @@ mod tests {
     use smiles_rs::{
         atom::Atom,
         bond::{Bond, bond_edge::BondEdge},
-        smiles::{AromaticityAssignmentApplicationError, Smiles},
+        smiles::{AromaticityAssignmentApplicationError, KekulizationError, Smiles},
     };
 
     use super::{
-        SmilesPreparationError, SmilesRdkitScratch,
+        CheckedSmilesPreparationError, SmilesPreparationError, SmilesRdkitScratch,
         charge_separated_phosphoryl_center_double_oxygen_count,
         hypervalent_halogen_oxoacid_center_double_oxygen_count, morgan_delta_mass,
         normalize_smiles_for_rdkit, normalized_rdkit_charge, rdkit_atom_invariant_fields,
@@ -1514,7 +1638,10 @@ mod tests {
         rdkit_atomic_weight, rdkit_bond_order, rdkit_morgan_bond_type_code,
         rdkit_topological_torsion_atom_code,
     };
-    use crate::{AtomPairGraph, EcfpGraph, MolecularAtom, MolecularGraph, TopologicalTorsionGraph};
+    use crate::{
+        AtomPairGraph, EcfpFingerprint, EcfpGraph, Fingerprint, MolecularAtom, MolecularGraph,
+        TopologicalTorsionGraph,
+    };
 
     fn observed_connectivity_invariants(smiles: &str, include_ring_membership: bool) -> Vec<u32> {
         let smiles: Smiles = smiles.parse().expect("fixture SMILES should parse");
@@ -1884,6 +2011,116 @@ mod tests {
         let rendered = alloc::format!("{error}");
         assert!(rendered.contains("failed to apply RDKit-default aromaticity"));
         assert!(rendered.contains("bond edge does not exist in graph"));
+        assert!(core::error::Error::source(&error).is_some());
+
+        let error =
+            CheckedSmilesPreparationError::Kekulization(KekulizationError::NoPerfectMatching {
+                candidate_atom_count: 5,
+            });
+        let rendered = alloc::format!("{error}");
+        assert!(rendered.contains("failed to kekulize aromatic input"));
+        assert!(rendered.contains("5 candidate atoms"));
+        assert!(core::error::Error::source(&error).is_some());
+
+        let error =
+            CheckedSmilesPreparationError::Preparation(SmilesPreparationError::Aromaticity(
+                AromaticityAssignmentApplicationError::MissingBondEdge {
+                    node_a: 1,
+                    node_b: 2,
+                },
+            ));
+        let source = core::error::Error::source(&error).unwrap();
+        assert!(source.source().is_some());
+        assert!(alloc::format!("{error}").contains("failed to apply RDKit-default aromaticity"));
+    }
+
+    #[test]
+    fn checked_preparation_rejects_aromatic_graphs_without_a_kekule_form() {
+        for input in ["c1cccc1", "n1cccc1", "c1ccccc1.n1cccc1"] {
+            let smiles: Smiles = input.parse().expect("syntax should parse");
+            assert!(smiles.kekulize_standalone().is_err());
+
+            for preserve_hydrogens in [false, true] {
+                let mut scratch = SmilesRdkitScratch::default();
+                let result = if preserve_hydrogens {
+                    scratch.try_prepare_checked_preserving_explicit_hydrogens(&smiles)
+                } else {
+                    scratch.try_prepare_checked(&smiles)
+                };
+                assert!(matches!(
+                    result,
+                    Err(CheckedSmilesPreparationError::Kekulization(
+                        KekulizationError::NoPerfectMatching { .. }
+                    ))
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn scratch_can_prepare_supported_inputs_after_kekulization_failure() {
+        let invalid: Smiles = "n1cccc1".parse().unwrap();
+        let fingerprint = EcfpFingerprint::new(3, 2048);
+
+        for preserve_hydrogens in [false, true] {
+            let mut scratch = SmilesRdkitScratch::default();
+            for input in ["c1ccccc1", "[nH]1cccc1", "c1ncc[nH]1", "[H]CO", "CCO"] {
+                let smiles: Smiles = input.parse().unwrap();
+                let prepare = |state: &mut SmilesRdkitScratch, molecule: &Smiles| {
+                    let graph = if preserve_hydrogens {
+                        state.try_prepare_checked_preserving_explicit_hydrogens(molecule)
+                    } else {
+                        state.try_prepare_checked(molecule)
+                    }?;
+                    Ok::<_, CheckedSmilesPreparationError>(fingerprint.compute(&graph))
+                };
+                let expected = prepare(&mut SmilesRdkitScratch::default(), &smiles).unwrap();
+                assert_eq!(prepare(&mut scratch, &smiles).unwrap(), expected);
+                assert!(prepare(&mut scratch, &invalid).is_err());
+                assert_eq!(prepare(&mut scratch, &smiles).unwrap(), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn checked_preparation_matches_legacy_on_supported_reference_inputs() {
+        let fixture = crate::test_fixtures::rdkit_ecfp_fixture();
+        let fingerprint = EcfpFingerprint::new(3, 2048);
+
+        for preserve_hydrogens in [false, true] {
+            let mut legacy = SmilesRdkitScratch::default();
+            let mut checked = SmilesRdkitScratch::default();
+            let mut unsupported = Vec::new();
+            for input in &fixture.molecules {
+                let smiles: Smiles = input.parse().unwrap();
+                let legacy_graph = if preserve_hydrogens {
+                    legacy.try_prepare_preserving_explicit_hydrogens(&smiles)
+                } else {
+                    legacy.try_prepare(&smiles)
+                }
+                .expect("legacy reference preparation must remain supported");
+                let result = if preserve_hydrogens {
+                    checked.try_prepare_checked_preserving_explicit_hydrogens(&smiles)
+                } else {
+                    checked.try_prepare_checked(&smiles)
+                };
+                match result {
+                    Ok(graph) => assert_eq!(
+                        fingerprint.compute(&graph),
+                        fingerprint.compute(&legacy_graph)
+                    ),
+                    Err(CheckedSmilesPreparationError::Kekulization(
+                        KekulizationError::NoPerfectMatching {
+                            candidate_atom_count: 0,
+                        },
+                    )) => unsupported.push(input.as_str()),
+                    Err(error) => panic!("unexpected checked preparation error: {error}"),
+                }
+            }
+            // These retain their original RDKit oracle expectations. Only the
+            // opt-in checked path rejects their unsupported localization.
+            assert_eq!(unsupported, ["N=c1[nH]c(=S)ss1", "O=c1[nH]c(=O)ss1"]);
+        }
     }
 
     #[test]

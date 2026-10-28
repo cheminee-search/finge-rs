@@ -12,6 +12,8 @@ MAP4 (`Map4Fingerprint`, MinHashed atom pair) rounds out the set. It exposes its
 
 `SmilesRdkitScratch` turns a `smiles-rs` molecule into an RDKit-normalized graph that every fingerprint accepts. AtomPair and Topological Torsion also run on a raw `Smiles` when you do not need the normalization step.
 
+The existing preparation methods preserve input aromatic labels when standalone kekulization fails. Use `try_prepare_checked` or `try_prepare_checked_preserving_explicit_hydrogens` to reject that fallback with `CheckedSmilesPreparationError::Kekulization`. These additive methods leave existing preparation behavior and `SmilesPreparationError` unchanged. They check localization and propagate aromaticity-assignment errors, but do not perform full molecular sanitization, certify aromaticity-perception completeness, or guarantee acceptance by RDKit. Some RDKit-accepted structures, including `N=c1[nH]c(=S)ss1` and `O=c1[nH]c(=O)ss1` from the tracked reference corpus, cannot currently be localized and are rejected by the checked path.
+
 Fingerprinting, `LshIndex` and `TanimotoIndex` support `wasm32-unknown-unknown`, including the `smarts-support` feature.
 
 ## Usage

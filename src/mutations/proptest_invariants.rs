@@ -27,8 +27,6 @@
 //! 6. `prop_composed_label_bit_count_within_bounds` — after success, the
 //!    label has at least one bit set and at most `min(k_max, 8)` bits.
 
-#![cfg(test)]
-
 use alloc::vec::Vec;
 
 use proptest::{prelude::*, test_runner::TestCaseError};
