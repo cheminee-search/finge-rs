@@ -349,6 +349,36 @@ struct Pattern {
     atoms: usize,
     ring_atoms: u8,
     bonds: &'static [PatternBond],
+    parents: [u8; 8],
+    incoming_bonds: [u8; 8],
+}
+
+impl Pattern {
+    // Derive traversal metadata at compile time while retaining the original
+    // bond order for typed hashing. Each bond points to a later atom.
+    const fn new(atoms: usize, ring_atoms: u8, bonds: &'static [PatternBond]) -> Self {
+        assert!(atoms > 0 && atoms <= 8);
+        assert!(bonds.len() <= 8);
+        let mut parents = [u8::MAX; 8];
+        let mut incoming_bonds = [0; 8];
+        let mut index = 0;
+        while index < bonds.len() {
+            let bond = &bonds[index];
+            assert!(bond.source < bond.target && bond.target < atoms);
+            if parents[bond.target] == u8::MAX {
+                parents[bond.target] = bond.source as u8;
+            }
+            incoming_bonds[bond.target] |= 1 << index;
+            index += 1;
+        }
+        Self {
+            atoms,
+            ring_atoms,
+            bonds,
+            parents,
+            incoming_bonds,
+        }
+    }
 }
 
 struct Matcher<'a> {
@@ -368,14 +398,9 @@ impl Matcher<'_> {
         if depth == self.pattern.atoms {
             return self.emit();
         }
-        if let Some(parent) = self
-            .pattern
-            .bonds
-            .iter()
-            .find(|bond| bond.target == depth)
-            .map(|bond| bond.source)
-        {
-            let anchor = self.mapping[parent];
+        let parent = self.pattern.parents[depth];
+        if parent != u8::MAX {
+            let anchor = self.mapping[usize::from(parent)];
             for index in 0..self.target.adjacency[anchor].len() {
                 self.try_atom(depth, self.target.adjacency[anchor][index].target)?;
             }
@@ -394,12 +419,10 @@ impl Matcher<'_> {
         {
             return Ok(());
         }
-        for bond in self
-            .pattern
-            .bonds
-            .iter()
-            .filter(|bond| bond.target == depth)
-        {
+        let mut incoming = self.pattern.incoming_bonds[depth];
+        while incoming != 0 {
+            let bond = &self.pattern.bonds[incoming.trailing_zeros() as usize];
+            incoming &= incoming - 1;
             let Some(edge) = self.target.edge(self.mapping[bond.source], atom) else {
                 return Ok(());
             };
@@ -468,79 +491,75 @@ const fn bond(source: usize, target: usize, constraint: BondConstraint) -> Patte
 
 const PATTERNS: &[Pattern] = &[
     // 1: [*]~[*]
-    Pattern {
-        atoms: 2,
-        ring_atoms: 0,
-        bonds: &[bond(0, 1, BondConstraint::Any)],
-    },
+    Pattern::new(2, 0, &[bond(0, 1, BondConstraint::Any)]),
     // 2: [*]~[*]~[*]
-    Pattern {
-        atoms: 3,
-        ring_atoms: 0,
-        bonds: &[
+    Pattern::new(
+        3,
+        0,
+        &[
             bond(0, 1, BondConstraint::Any),
             bond(1, 2, BondConstraint::Any),
         ],
-    },
+    ),
     // 3: [R]~1~[R]~[R]~1
-    Pattern {
-        atoms: 3,
-        ring_atoms: 7,
-        bonds: &[
+    Pattern::new(
+        3,
+        7,
+        &[
             bond(0, 1, BondConstraint::Any),
             bond(1, 2, BondConstraint::Any),
             bond(0, 2, BondConstraint::Any),
         ],
-    },
+    ),
     // 4: [*]~[*](~[*])~[*]
-    Pattern {
-        atoms: 4,
-        ring_atoms: 0,
-        bonds: &[
+    Pattern::new(
+        4,
+        0,
+        &[
             bond(0, 1, BondConstraint::Any),
             bond(1, 2, BondConstraint::Any),
             bond(1, 3, BondConstraint::Any),
         ],
-    },
+    ),
     // 5: [R]~1[R]~[R]~[R]~1
-    Pattern {
-        atoms: 4,
-        ring_atoms: 15,
-        bonds: &[
+    Pattern::new(
+        4,
+        15,
+        &[
             bond(0, 1, BondConstraint::SingleOrAromatic),
             bond(1, 2, BondConstraint::Any),
             bond(2, 3, BondConstraint::Any),
             bond(0, 3, BondConstraint::Any),
         ],
-    },
+    ),
     // 6: [*]~[*]~[*](~[*])~[*]
-    Pattern {
-        atoms: 5,
-        ring_atoms: 0,
-        bonds: &[
+    Pattern::new(
+        5,
+        0,
+        &[
             bond(0, 1, BondConstraint::Any),
             bond(1, 2, BondConstraint::Any),
             bond(2, 3, BondConstraint::Any),
             bond(2, 4, BondConstraint::Any),
         ],
-    },
+    ),
     // 7: [R]~1~[R]~[R]~[R]~[R]~1
-    Pattern {
-        atoms: 5,
-        ring_atoms: 31,
-        bonds: &[
+    Pattern::new(
+        5,
+        31,
+        &[
             bond(0, 1, BondConstraint::Any),
             bond(1, 2, BondConstraint::Any),
             bond(2, 3, BondConstraint::Any),
             bond(3, 4, BondConstraint::Any),
             bond(0, 4, BondConstraint::Any),
         ],
-    },
+    ),
     // 8: [R]~1~[R]~[R]~[R]~[R]~[R]~1
-    Pattern {
-        atoms: 6,
-        ring_atoms: 63,
-        bonds: &[
+    Pattern::new(
+        6,
+        63,
+        &[
             bond(0, 1, BondConstraint::Any),
             bond(1, 2, BondConstraint::Any),
             bond(2, 3, BondConstraint::Any),
@@ -548,12 +567,12 @@ const PATTERNS: &[Pattern] = &[
             bond(4, 5, BondConstraint::Any),
             bond(0, 5, BondConstraint::Any),
         ],
-    },
+    ),
     // 9: [R](@[R])(@[R])~[R]~[R](@[R])(@[R])
-    Pattern {
-        atoms: 7,
-        ring_atoms: 127,
-        bonds: &[
+    Pattern::new(
+        7,
+        127,
+        &[
             bond(0, 1, BondConstraint::Ring),
             bond(0, 2, BondConstraint::Ring),
             bond(0, 3, BondConstraint::Any),
@@ -561,12 +580,12 @@ const PATTERNS: &[Pattern] = &[
             bond(4, 5, BondConstraint::Ring),
             bond(4, 6, BondConstraint::Ring),
         ],
-    },
+    ),
     // 10: [R](@[R])(@[R])~[R]@[R]~[R](@[R])(@[R])
-    Pattern {
-        atoms: 8,
-        ring_atoms: 255,
-        bonds: &[
+    Pattern::new(
+        8,
+        255,
+        &[
             bond(0, 1, BondConstraint::Ring),
             bond(0, 2, BondConstraint::Ring),
             bond(0, 3, BondConstraint::Any),
@@ -575,24 +594,24 @@ const PATTERNS: &[Pattern] = &[
             bond(5, 6, BondConstraint::Ring),
             bond(5, 7, BondConstraint::Ring),
         ],
-    },
+    ),
     // 11: [*]~[R](@[R])@[R](@[R])~[*]
-    Pattern {
-        atoms: 6,
-        ring_atoms: 30,
-        bonds: &[
+    Pattern::new(
+        6,
+        30,
+        &[
             bond(0, 1, BondConstraint::Any),
             bond(1, 2, BondConstraint::Ring),
             bond(1, 3, BondConstraint::Ring),
             bond(3, 4, BondConstraint::Ring),
             bond(3, 5, BondConstraint::Any),
         ],
-    },
+    ),
     // 12: [*]~[R](@[R])@[R]@[R](@[R])~[*]
-    Pattern {
-        atoms: 7,
-        ring_atoms: 62,
-        bonds: &[
+    Pattern::new(
+        7,
+        62,
+        &[
             bond(0, 1, BondConstraint::Any),
             bond(1, 2, BondConstraint::Ring),
             bond(1, 3, BondConstraint::Ring),
@@ -600,11 +619,7 @@ const PATTERNS: &[Pattern] = &[
             bond(4, 5, BondConstraint::Ring),
             bond(4, 6, BondConstraint::Any),
         ],
-    },
+    ),
     // 13: [*]
-    Pattern {
-        atoms: 1,
-        ring_atoms: 0,
-        bonds: &[],
-    },
+    Pattern::new(1, 0, &[]),
 ];
